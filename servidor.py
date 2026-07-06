@@ -67,5 +67,9 @@ def guardar_cosmetico():
 
 # Asegura el arranque nativo si se ejecuta directamente
 if __name__ == '__main__':
-    puerto = int(os.environ.get("PORT", 10000))
+    # 🌟 OBLIGATORIO PARA RENDER: Lee el puerto dinámico del sistema. 
+    # Si no existe (local), usa el 5000 por defecto.
+    puerto = int(os.environ.get("PORT", 5000))
+    
+    # 🌟 OBLIGATORIO: host='0.0.0.0' le dice a Flask que escuche peticiones externas (como tu móvil)
     app.run(host='0.0.0.0', port=puerto)
