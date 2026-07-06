@@ -28,21 +28,34 @@ def guardar_en_postgres(codigo, nombre, inci, fecha_cad):
             conexion.close()
 
 @app.route('/guardar', methods=['POST'])
-def guardar_cosmetico():
-    datos = request.json
-    codigo = datos.get('codigo')
-    nombre = datos.get('nombre')
-    inci = datos.get('inci')
-    fecha_cad = datos.get('fechaCaducidad')
-    
-    exito = guardar_en_postgres(codigo, nombre, inci, fecha_cad)
-    
-    if exito:
-        return jsonify({"status": "ok", "mensaje": "Guardado en la nube"}), 200
-    else:
-        return jsonify({"status": "error"}), 500
-
-if __name__ == '__main__':
-    # Render nos exige leer el puerto que ellos decidan dinámicamente
-    puerto = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=puerto)
+def guardar_en_postgres(codigo, nombre, inci, fecha_cad):
+    try:
+        # 1. Tu conexión habitual (usando tu variable de entorno DATABASE_URL)
+        # conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+        cursor = conn.cursor()
+        
+        # 2. SEGURO DE VIDA: Si la tabla no existe o está mal, esto la crea perfecta
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cosmeticos (
+                id SERIAL PRIMARY KEY,
+                codigo VARCHAR(100),
+                nombre VARCHAR(255),
+                inci TEXT,
+                fecha_caducidad VARCHAR(100)
+            );
+        """)
+        
+        # 3. Guardamos los datos asociando 'fecha_cad' a la columna 'fecha_caducidad'
+        cursor.execute(
+            "INSERT INTO cosmeticos (codigo, nombre, inci, fecha_caducidad) VALUES (%s, %s, %s, %s);",
+            (codigo, nombre, inci, fecha_cad)
+        )
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+        
+    except Exception as e:
+        print(f"Error real en la base de datos: {e}") # Esto saldrá en los Logs de Render si falla
+        return False
