@@ -32,7 +32,7 @@ def sumar_meses(fecha_texto, meses):
             dia -= 1
 
 # ==========================================
-# MODELOS (las 3 tablas de tu DBeaver)
+# MODELOS (ahora sí, las 3 tablas de tu DBeaver)
 # ==========================================
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
@@ -116,6 +116,7 @@ def login():
 
     usuario = Usuario.query.filter_by(nombre_usuario=user_key).first()
     if usuario and check_password_hash(usuario.password_hash, password):
+        # 🌟 Ahora sí devolvemos el id, la app lo necesita para guardar productos
         return jsonify({"status": "ok", "message": "Login correcto", "usuario_id": usuario.id}), 200
 
     return jsonify({"error": "Credenciales inválidas"}), 401
@@ -185,11 +186,17 @@ def guardar_producto():
 # ==========================================
 @app.route('/productos/<int:usuario_id>', methods=['GET'])
 def obtener_productos(usuario_id):
+    # 🌟 ?acabado=true devuelve los productos ya marcados como acabados;
+    # por defecto (false) devuelve solo los activos.
+    solo_acabados = request.args.get('acabado', 'false').lower() == 'true'
     try:
         resultados = (
             db.session.query(InventarioUsuario, ProductoMaestro)
             .join(ProductoMaestro, InventarioUsuario.producto_id == ProductoMaestro.id)
-            .filter(InventarioUsuario.usuario_id == usuario_id)
+            .filter(
+                InventarioUsuario.usuario_id == usuario_id,
+                InventarioUsuario.es_acabado == solo_acabados
+            )
             .all()
         )
 
@@ -208,11 +215,31 @@ def obtener_productos(usuario_id):
                 "fecha_caducidad_pao": inventario.fecha_caducidad_pao,
                 "numero_unidades": inventario.numero_unidades,
                 "conclusiones": inventario.conclusiones,
-                "es_acabado": inventario.es_acabado
+                "es_acabado": inventario.es_acabado,
+                "fecha_acabado": inventario.fecha_acabado
             })
 
         return jsonify(productos), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# MARCAR UN PRODUCTO COMO ACABADO
+# ==========================================
+@app.route('/productos/<int:id_inventario>/acabado', methods=['PUT'])
+def marcar_acabado(id_inventario):
+    data = request.get_json() or {}
+    item = InventarioUsuario.query.get(id_inventario)
+    if not item:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    try:
+        item.es_acabado = True
+        item.fecha_acabado = data.get('fecha_acabado')
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Producto marcado como acabado"}), 200
+    except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
