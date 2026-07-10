@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, datetime
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -11,8 +11,28 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+
+def sumar_meses(fecha_texto, meses):
+    """Recibe una fecha en formato DD/MM/AAAA y le suma X meses, sin librerías extra."""
+    try:
+        fecha = datetime.strptime(fecha_texto, "%d/%m/%Y")
+    except (ValueError, TypeError):
+        return None
+
+    mes_total = fecha.month - 1 + meses
+    anio = fecha.year + mes_total // 12
+    mes = mes_total % 12 + 1
+    dia = fecha.day
+
+    # Ajuste por si el día no existe en el mes resultante (ej. 31 de febrero)
+    while True:
+        try:
+            return datetime(anio, mes, dia).strftime("%d/%m/%Y")
+        except ValueError:
+            dia -= 1
+
 # ==========================================
-# MODELOS (ahora sí, las 3 tablas de tu DBeaver)
+# MODELOS (las 3 tablas de tu DBeaver)
 # ==========================================
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
@@ -42,6 +62,7 @@ class InventarioUsuario(db.Model):
     fecha_caducidad_fabricante = db.Column(db.String(100))
     pao = db.Column(db.Integer)
     fecha_apertura = db.Column(db.String(100))
+    fecha_caducidad_pao = db.Column(db.String(100))
     numero_unidades = db.Column(db.Integer)
     es_acabado = db.Column(db.Boolean, default=False)
     fecha_acabado = db.Column(db.String(100))
@@ -136,13 +157,19 @@ def guardar_producto():
             db.session.add(producto)
             db.session.flush()  # para obtener producto.id sin hacer commit todavía
 
+        # La fecha caducidad PAO viene calculada desde la app; si no llega,
+        # se calcula aquí como respaldo (fecha_apertura + meses de PAO).
+        fecha_apertura_final = data.get('fecha_apertura') or str(date.today())
+        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or sumar_meses(fecha_apertura_final, pao_int)
+
         # 2) Insertar la fila de inventario del usuario, ya con el producto_id correcto.
         nuevo_item = InventarioUsuario(
             usuario_id=int(usuario_id),
             producto_id=producto.id,
             fecha_caducidad_fabricante=data.get('fecha_caducidad'),
             pao=pao_int,
-            fecha_apertura=str(date.today()),
+            fecha_apertura=fecha_apertura_final,
+            fecha_caducidad_pao=fecha_caducidad_pao,
             numero_unidades=unidades,
             es_acabado=False,
             conclusiones=data.get('conclusiones')
