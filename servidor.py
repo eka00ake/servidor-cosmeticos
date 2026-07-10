@@ -116,7 +116,6 @@ def login():
 
     usuario = Usuario.query.filter_by(nombre_usuario=user_key).first()
     if usuario and check_password_hash(usuario.password_hash, password):
-        # 🌟 Ahora sí devolvemos el id, la app lo necesita para guardar productos
         return jsonify({"status": "ok", "message": "Login correcto", "usuario_id": usuario.id}), 200
 
     return jsonify({"error": "Credenciales inválidas"}), 401
@@ -179,6 +178,41 @@ def guardar_producto():
         return jsonify({"status": "ok", "message": "Guardado con éxito"}), 200
     except Exception as e:
         db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# OBTENER PRODUCTOS DE UN USUARIO (con datos del producto ya unidos)
+# ==========================================
+@app.route('/productos/<int:usuario_id>', methods=['GET'])
+def obtener_productos(usuario_id):
+    try:
+        resultados = (
+            db.session.query(InventarioUsuario, ProductoMaestro)
+            .join(ProductoMaestro, InventarioUsuario.producto_id == ProductoMaestro.id)
+            .filter(InventarioUsuario.usuario_id == usuario_id)
+            .all()
+        )
+
+        productos = []
+        for inventario, producto in resultados:
+            productos.append({
+                "id_inventario": inventario.id,
+                "codigo_barras": producto.codigo_barras,
+                "marca": producto.marca,
+                "nombre_producto": producto.nombre_producto,
+                "inci": producto.inci,
+                "imagen_url": producto.imagen_url,
+                "fecha_caducidad_fabricante": inventario.fecha_caducidad_fabricante,
+                "pao": inventario.pao,
+                "fecha_apertura": inventario.fecha_apertura,
+                "fecha_caducidad_pao": inventario.fecha_caducidad_pao,
+                "numero_unidades": inventario.numero_unidades,
+                "conclusiones": inventario.conclusiones,
+                "es_acabado": inventario.es_acabado
+            })
+
+        return jsonify(productos), 200
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
