@@ -242,5 +242,38 @@ def marcar_acabado(id_inventario):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ==========================================
+# GUARDAR / EDITAR LA FECHA DE APERTURA DE UN PRODUCTO YA EXISTENTE
+# ==========================================
+@app.route('/productos/<int:id_inventario>/apertura', methods=['PUT'])
+def actualizar_apertura(id_inventario):
+    data = request.get_json() or {}
+    item = InventarioUsuario.query.get(id_inventario)
+    if not item:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    fecha_apertura = data.get('fecha_apertura')
+    if not fecha_apertura:
+        return jsonify({"error": "Falta la fecha de apertura"}), 400
+
+    try:
+        # La app ya envía la fecha de caducidad PAO calculada, pero si por
+        # cualquier motivo no llegara, se recalcula aquí como respaldo
+        # usando los meses de PAO ya guardados para este producto.
+        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or sumar_meses(fecha_apertura, item.pao or 0)
+
+        item.fecha_apertura = fecha_apertura
+        item.fecha_caducidad_pao = fecha_caducidad_pao
+        db.session.commit()
+        return jsonify({
+            "status": "ok",
+            "message": "Fecha de apertura actualizada",
+            "fecha_apertura": item.fecha_apertura,
+            "fecha_caducidad_pao": item.fecha_caducidad_pao
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
