@@ -158,12 +158,14 @@ def guardar_producto():
             db.session.flush()  # para obtener producto.id sin hacer commit todavía
 
         # 🌟 Ya NO se pone la fecha de hoy por defecto: si el usuario no ha
-        # indicado fecha de apertura, se guarda vacía y no se calcula la fecha
-        # de caducidad PAO hasta que el propio usuario la indique más adelante.
-        fecha_apertura_final = data.get('fecha_apertura') or None
-        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or None
+        # indicado fecha de apertura, se guarda vacía ("") y no se calcula la
+        # fecha de caducidad PAO hasta que el propio usuario la indique más
+        # adelante. Se usa "" en vez de None porque esas columnas de la BD
+        # pueden tener restricción NOT NULL.
+        fecha_apertura_final = data.get('fecha_apertura') or ""
+        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
         if fecha_apertura_final and not fecha_caducidad_pao:
-            fecha_caducidad_pao = sumar_meses(fecha_apertura_final, pao_int)
+            fecha_caducidad_pao = sumar_meses(fecha_apertura_final, pao_int) or ""
 
         # 2) Insertar la fila de inventario del usuario, ya con el producto_id correcto.
         nuevo_item = InventarioUsuario(
@@ -273,6 +275,28 @@ def actualizar_apertura(id_inventario):
             "message": "Fecha de apertura actualizada",
             "fecha_apertura": item.fecha_apertura,
             "fecha_caducidad_pao": item.fecha_caducidad_pao
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# GUARDAR / EDITAR LAS NOTAS (CONCLUSIONES) DE UN PRODUCTO
+# ==========================================
+@app.route('/productos/<int:id_inventario>/notas', methods=['PUT'])
+def actualizar_notas(id_inventario):
+    data = request.get_json() or {}
+    item = InventarioUsuario.query.get(id_inventario)
+    if not item:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    try:
+        item.conclusiones = data.get('conclusiones', '')
+        db.session.commit()
+        return jsonify({
+            "status": "ok",
+            "message": "Notas actualizadas",
+            "conclusiones": item.conclusiones
         }), 200
     except Exception as e:
         db.session.rollback()
