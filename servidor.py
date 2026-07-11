@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -157,10 +157,13 @@ def guardar_producto():
             db.session.add(producto)
             db.session.flush()  # para obtener producto.id sin hacer commit todavía
 
-        # La fecha caducidad PAO viene calculada desde la app; si no llega,
-        # se calcula aquí como respaldo (fecha_apertura + meses de PAO).
-        fecha_apertura_final = data.get('fecha_apertura') or str(date.today())
-        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or sumar_meses(fecha_apertura_final, pao_int)
+        # 🌟 Ya NO se pone la fecha de hoy por defecto: si el usuario no ha
+        # indicado fecha de apertura, se guarda vacía y no se calcula la fecha
+        # de caducidad PAO hasta que el propio usuario la indique más adelante.
+        fecha_apertura_final = data.get('fecha_apertura') or None
+        fecha_caducidad_pao = data.get('fecha_caducidad_pao') or None
+        if fecha_apertura_final and not fecha_caducidad_pao:
+            fecha_caducidad_pao = sumar_meses(fecha_apertura_final, pao_int)
 
         # 2) Insertar la fila de inventario del usuario, ya con el producto_id correcto.
         nuevo_item = InventarioUsuario(
