@@ -63,7 +63,7 @@ class InventarioUsuario(db.Model):
     pao = db.Column(db.Integer)
     fecha_apertura = db.Column(db.String(100))
     fecha_caducidad_pao = db.Column(db.String(100))
-    numero_unidades = db.Column(db.Integer)
+    cantidad_ml = db.Column(db.Integer)
     es_acabado = db.Column(db.Boolean, default=False)
     fecha_acabado = db.Column(db.String(100))
     conclusiones = db.Column(db.Text)
@@ -156,12 +156,11 @@ def guardar_producto():
             )
             db.session.add(producto)
             db.session.flush()  # para obtener producto.id sin hacer commit todavía
+        else:
 
-        # 🌟 Ya NO se pone la fecha de hoy por defecto: si el usuario no ha
-        # indicado fecha de apertura, se guarda vacía ("") y no se calcula la
-        # fecha de caducidad PAO hasta que el propio usuario la indique más
-        # adelante. Se usa "" en vez de None porque esas columnas de la BD
-        # pueden tener restricción NOT NULL.
+            producto.cantidad = unidades
+
+
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
         if fecha_apertura_final and not fecha_caducidad_pao:
@@ -175,7 +174,7 @@ def guardar_producto():
             pao=pao_int,
             fecha_apertura=fecha_apertura_final,
             fecha_caducidad_pao=fecha_caducidad_pao,
-            numero_unidades=unidades,
+            cantidad_ml=unidades,
             es_acabado=False,
             conclusiones=data.get('conclusiones')
         )
@@ -218,7 +217,7 @@ def obtener_productos(usuario_id):
                 "pao": inventario.pao,
                 "fecha_apertura": inventario.fecha_apertura,
                 "fecha_caducidad_pao": inventario.fecha_caducidad_pao,
-                "numero_unidades": inventario.numero_unidades,
+                "numero_unidades": inventario.cantidad_ml,
                 "conclusiones": inventario.conclusiones,
                 "es_acabado": inventario.es_acabado,
                 "fecha_acabado": inventario.fecha_acabado
