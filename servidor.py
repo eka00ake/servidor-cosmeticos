@@ -157,10 +157,16 @@ def guardar_producto():
             db.session.add(producto)
             db.session.flush()  # para obtener producto.id sin hacer commit todavía
         else:
-
+            # 🌟 "cantidad" (contenido en ml del producto) y "numero_unidades" son el
+            # mismo dato de origen: si el producto ya existía en productos_maestros,
+            # se actualiza también aquí para que ambas tablas queden sincronizadas.
             producto.cantidad = unidades
 
-
+        # 🌟 Ya NO se pone la fecha de hoy por defecto: si el usuario no ha
+        # indicado fecha de apertura, se guarda vacía ("") y no se calcula la
+        # fecha de caducidad PAO hasta que el propio usuario la indique más
+        # adelante. Se usa "" en vez de None porque esas columnas de la BD
+        # pueden tener restricción NOT NULL.
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
         if fecha_apertura_final and not fecha_caducidad_pao:
