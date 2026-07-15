@@ -122,6 +122,100 @@ def login():
     return jsonify({"error": "Credenciales inválidas"}), 401
 
 # ==========================================
+# GESTIÓN DE CUENTA (pantalla "Mi Cuenta" de la app)
+# ==========================================
+@app.route('/api/usuarios/<int:usuario_id>', methods=['GET'])
+def obtener_usuario(usuario_id):
+    usuario = Usuario.query.get(usuario_id)
+    if not usuario:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    # La tabla guarda nombre y apellidos por separado, pero la app trabaja con
+    # un único campo "nombre_completo" (igual que en el registro).
+    nombre_completo = (usuario.nombre or '').strip()
+    if usuario.apellidos:
+        nombre_completo = f"{nombre_completo} {usuario.apellidos}".strip()
+
+    return jsonify({
+        "id": usuario.id,
+        "nombre_usuario": usuario.nombre_usuario,
+        "nombre_completo": nombre_completo,
+        "email": usuario.email,
+        "telefono": usuario.telefono
+    }), 200
+
+@app.route('/api/usuarios/<int:usuario_id>', methods=['PUT'])
+def actualizar_usuario(usuario_id):
+    usuario = Usuario.query.get(usuario_id)
+    if not usuario:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON received"}), 400
+
+    nuevo_nombre_usuario = data.get('nombre_usuario', usuario.nombre_usuario)
+    nuevo_email = data.get('email', usuario.email)
+
+    # Si cambia el nombre de usuario o el email, comprobamos que no choquen
+    # con los de OTRA cuenta (la unicidad es a nivel de toda la tabla, no solo
+    # de este usuario).
+    conflicto = Usuario.query.filter(
+        Usuario.id != usuario_id,
+        (Usuario.nombre_usuario == nuevo_nombre_usuario) | (Usuario.email == nuevo_email)
+    ).first()
+    if conflicto:
+        return jsonify({"error": "El usuario o email ya está en uso por otra cuenta"}), 400
+
+    nombre_completo = data.get('nombre_completo')
+    if nombre_completo is not None:
+        partes = nombre_completo.split(' ', 1)
+        usuario.nombre = partes[0]
+        usuario.apellidos = partes[1] if len(partes) > 1 else ''
+
+    usuario.nombre_usuario = nuevo_nombre_usuario
+    usuario.email = nuevo_email
+
+    # La app manda tanto "telefono" como "teléfono" (con tilde) por
+    # compatibilidad con el registro; aceptamos cualquiera de las dos.
+    telefono = data.get('telefono', data.get('teléfono'))
+    if telefono is not None:
+        usuario.telefono = telefono
+
+    # La contraseña solo se cambia si el usuario ha escrito una nueva.
+    nueva_password = data.get('password')
+    if nueva_password:
+        usuario.password_hash = generate_password_hash(nueva_password)
+
+    try:
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Usuario actualizado"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/usuarios/<int:usuario_id>', methods=['DELETE'])
+def eliminar_usuario(usuario_id):
+    usuario = Usuario.query.get(usuario_id)
+    if not usuario:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    try:
+        # Hay que borrar primero su inventario: la columna
+        # inventario_usuarios.usuario_id es clave foránea hacia usuarios.id,
+        # así que si no se limpia antes, la base de datos rechazaría el
+        # borrado del usuario por violación de integridad referencial.
+        # (Los productos en productos_maestros no se tocan: son compartidos
+        # por código de barras entre todos los usuarios.)
+        InventarioUsuario.query.filter_by(usuario_id=usuario_id).delete()
+        db.session.delete(usuario)
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Cuenta eliminada"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
 # GUARDAR PRODUCTO (con buscar-o-crear en productos_maestros)
 # ==========================================
 @app.route('/guardar', methods=['POST'])
