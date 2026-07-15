@@ -307,5 +307,25 @@ def actualizar_notas(id_inventario):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ==========================================
+# ELIMINAR UN PRODUCTO DEL INVENTARIO DEL USUARIO
+# ==========================================
+@app.route('/productos/<int:id_inventario>', methods=['DELETE'])
+def eliminar_producto(id_inventario):
+    # 🌟 Solo se borra la fila de inventario_usuarios (la del usuario). La ficha
+    # en productos_maestros se deja intacta a propósito: la comparten todos los
+    # usuarios que tengan ese mismo código de barras en su propio inventario.
+    item = InventarioUsuario.query.get(id_inventario)
+    if not item:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    try:
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Producto eliminado"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
