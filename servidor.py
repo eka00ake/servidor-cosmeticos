@@ -24,16 +24,12 @@ def sumar_meses(fecha_texto, meses):
     mes = mes_total % 12 + 1
     dia = fecha.day
 
-    # Ajuste por si el día no existe en el mes resultante (ej. 31 de febrero)
     while True:
         try:
             return datetime(anio, mes, dia).strftime("%d/%m/%Y")
         except ValueError:
             dia -= 1
 
-# ==========================================
-# MODELOS (ahora sí, las 3 tablas de tu DBeaver)
-# ==========================================
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
     id = db.Column(db.Integer, primary_key=True)
@@ -116,10 +112,48 @@ def login():
 
     usuario = Usuario.query.filter_by(nombre_usuario=user_key).first()
     if usuario and check_password_hash(usuario.password_hash, password):
-        # 🌟 Ahora sí devolvemos el id, la app lo necesita para guardar productos
         return jsonify({"status": "ok", "message": "Login correcto", "usuario_id": usuario.id}), 200
 
     return jsonify({"error": "Credenciales inválidas"}), 401
+
+# ==========================================
+# RECUPERACIÓN DE CONTRASEÑA
+# ==========================================
+# 🌟 La app no tiene servicio de envío de correos configurado, así que la
+# recuperación se hace verificando en un único paso que el nombre de usuario
+# y el email coinciden con los guardados en el registro; si coinciden, se
+# permite fijar una contraseña nueva directamente. No hay tokens ni enlaces
+# por email: es una verificación de identidad simple pensada para esta app.
+@app.route('/api/auth/recuperar-password', methods=['POST'])
+def recuperar_password():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON received"}), 400
+
+    user_key = data.get('nombre_usuario')
+    email_key = data.get('email')
+    nueva_password = data.get('nueva_password')
+
+    if not user_key or not email_key or not nueva_password:
+        return jsonify({"error": "Faltan datos obligatorios"}), 400
+
+    if len(nueva_password) < 6:
+        return jsonify({"error": "La contraseña debe tener al menos 6 caracteres"}), 400
+
+    usuario = Usuario.query.filter_by(nombre_usuario=user_key).first()
+
+    # Mismo mensaje tanto si el usuario no existe como si el email no coincide,
+    # para no revelar a un atacante qué nombres de usuario existen.
+    if not usuario or (usuario.email or '').lower() != email_key.lower():
+        return jsonify({"error": "Los datos no coinciden con ninguna cuenta"}), 404
+
+    try:
+        usuario.password_hash = generate_password_hash(nueva_password)
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Contraseña actualizada correctamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 # ==========================================
 # GESTIÓN DE CUENTA (pantalla "Mi Cuenta" de la app)
@@ -130,8 +164,6 @@ def obtener_usuario(usuario_id):
     if not usuario:
         return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # La tabla guarda nombre y apellidos por separado, pero la app trabaja con
-    # un único campo "nombre_completo" (igual que en el registro).
     nombre_completo = (usuario.nombre or '').strip()
     if usuario.apellidos:
         nombre_completo = f"{nombre_completo} {usuario.apellidos}".strip()
@@ -157,9 +189,6 @@ def actualizar_usuario(usuario_id):
     nuevo_nombre_usuario = data.get('nombre_usuario', usuario.nombre_usuario)
     nuevo_email = data.get('email', usuario.email)
 
-    # Si cambia el nombre de usuario o el email, comprobamos que no choquen
-    # con los de OTRA cuenta (la unicidad es a nivel de toda la tabla, no solo
-    # de este usuario).
     conflicto = Usuario.query.filter(
         Usuario.id != usuario_id,
         (Usuario.nombre_usuario == nuevo_nombre_usuario) | (Usuario.email == nuevo_email)
@@ -176,13 +205,10 @@ def actualizar_usuario(usuario_id):
     usuario.nombre_usuario = nuevo_nombre_usuario
     usuario.email = nuevo_email
 
-    # La app manda tanto "telefono" como "teléfono" (con tilde) por
-    # compatibilidad con el registro; aceptamos cualquiera de las dos.
     telefono = data.get('telefono', data.get('teléfono'))
     if telefono is not None:
         usuario.telefono = telefono
 
-    # La contraseña solo se cambia si el usuario ha escrito una nueva.
     nueva_password = data.get('password')
     if nueva_password:
         usuario.password_hash = generate_password_hash(nueva_password)
@@ -201,12 +227,6 @@ def eliminar_usuario(usuario_id):
         return jsonify({"error": "Usuario no encontrado"}), 404
 
     try:
-        # Hay que borrar primero su inventario: la columna
-        # inventario_usuarios.usuario_id es clave foránea hacia usuarios.id,
-        # así que si no se limpia antes, la base de datos rechazaría el
-        # borrado del usuario por violación de integridad referencial.
-        # (Los productos en productos_maestros no se tocan: son compartidos
-        # por código de barras entre todos los usuarios.)
         InventarioUsuario.query.filter_by(usuario_id=usuario_id).delete()
         db.session.delete(usuario)
         db.session.commit()
@@ -237,7 +257,6 @@ def guardar_producto():
     unidades = int(data.get('unidades', 1))
 
     try:
-        # 1) Buscar el producto por código de barras; si no existe, se crea.
         producto = ProductoMaestro.query.filter_by(codigo_barras=codigo_barras).first()
         if producto is None:
             producto = ProductoMaestro(
@@ -249,24 +268,15 @@ def guardar_producto():
                 cantidad=unidades
             )
             db.session.add(producto)
-            db.session.flush()  # para obtener producto.id sin hacer commit todavía
+            db.session.flush()
         else:
-            # 🌟 "cantidad" (contenido en ml del producto) y "numero_unidades" son el
-            # mismo dato de origen: si el producto ya existía en productos_maestros,
-            # se actualiza también aquí para que ambas tablas queden sincronizadas.
             producto.cantidad = unidades
 
-        # 🌟 Ya NO se pone la fecha de hoy por defecto: si el usuario no ha
-        # indicado fecha de apertura, se guarda vacía ("") y no se calcula la
-        # fecha de caducidad PAO hasta que el propio usuario la indique más
-        # adelante. Se usa "" en vez de None porque esas columnas de la BD
-        # pueden tener restricción NOT NULL.
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
         if fecha_apertura_final and not fecha_caducidad_pao:
             fecha_caducidad_pao = sumar_meses(fecha_apertura_final, pao_int) or ""
 
-        # 2) Insertar la fila de inventario del usuario, ya con el producto_id correcto.
         nuevo_item = InventarioUsuario(
             usuario_id=int(usuario_id),
             producto_id=producto.id,
@@ -290,8 +300,6 @@ def guardar_producto():
 # ==========================================
 @app.route('/productos/<int:usuario_id>', methods=['GET'])
 def obtener_productos(usuario_id):
-    # 🌟 ?acabado=true devuelve los productos ya marcados como acabados;
-    # por defecto (false) devuelve solo los activos.
     solo_acabados = request.args.get('acabado', 'false').lower() == 'true'
     try:
         resultados = (
@@ -361,9 +369,6 @@ def actualizar_apertura(id_inventario):
         return jsonify({"error": "Falta la fecha de apertura"}), 400
 
     try:
-        # La app ya envía la fecha de caducidad PAO calculada, pero si por
-        # cualquier motivo no llegara, se recalcula aquí como respaldo
-        # usando los meses de PAO ya guardados para este producto.
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or sumar_meses(fecha_apertura, item.pao or 0)
 
         item.fecha_apertura = fecha_apertura
@@ -406,9 +411,6 @@ def actualizar_notas(id_inventario):
 # ==========================================
 @app.route('/productos/<int:id_inventario>', methods=['DELETE'])
 def eliminar_producto(id_inventario):
-    # 🌟 Solo se borra la fila de inventario_usuarios (la del usuario). La ficha
-    # en productos_maestros se deja intacta a propósito: la comparten todos los
-    # usuarios que tengan ese mismo código de barras en su propio inventario.
     item = InventarioUsuario.query.get(id_inventario)
     if not item:
         return jsonify({"error": "Producto no encontrado"}), 404
