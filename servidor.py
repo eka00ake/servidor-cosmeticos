@@ -14,6 +14,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
+cloudinary.config(
+    cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.environ.get('CLOUDINARY_API_KEY'),
+    api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+)
+
+
 def sumar_meses(fecha_texto, meses):
     """Recibe una fecha en formato DD/MM/AAAA y le suma X meses, sin librerías extra."""
     try:
@@ -304,6 +311,8 @@ def guardar_producto():
             producto.cantidad = unidades
             producto.pao = pao_int
             producto.tipo_producto = data.get('tipo_producto', producto.tipo_producto)
+            if data.get('imagen_url'):
+                producto.imagen_url = data.get('imagen_url')
 
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
@@ -455,6 +464,28 @@ def eliminar_producto(id_inventario):
         return jsonify({"status": "ok", "message": "Producto eliminado"}), 200
     except Exception as e:
         db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# SUBIR FOTO DE PRODUCTO
+# ==========================================
+@app.route('/productos/foto', methods=['POST'])
+def subir_foto_producto():
+    if 'foto' not in request.files:
+        return jsonify({"error": "No se recibió ningún archivo (campo 'foto')"}), 400
+
+    archivo = request.files['foto']
+    if archivo.filename == '':
+        return jsonify({"error": "Archivo vacío"}), 400
+
+    try:
+        resultado = cloudinary.uploader.upload(
+            archivo,
+            folder="cosmeticos_productos",
+            transformation=[{"width": 1024, "height": 1024, "crop": "limit"}]
+        )
+        return jsonify({"status": "ok", "imagen_url": resultado.get("secure_url")}), 200
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
