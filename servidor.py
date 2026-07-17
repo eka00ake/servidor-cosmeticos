@@ -65,6 +65,15 @@ class InventarioUsuario(db.Model):
     fecha_acabado = db.Column(db.String(100))
     conclusiones = db.Column(db.Text)
 
+class MensajeContacto(db.Model):
+    __tablename__ = 'mensajes_contacto'
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    nombre = db.Column(db.String(150))
+    email = db.Column(db.String(150))
+    mensaje = db.Column(db.Text, nullable=False)
+    fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
+
 # ==========================================
 # AUTENTICACIÓN
 # ==========================================
@@ -435,6 +444,40 @@ def eliminar_producto(id_inventario):
         db.session.delete(item)
         db.session.commit()
         return jsonify({"status": "ok", "message": "Producto eliminado"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# CONTACTO / SOPORTE
+# ==========================================
+@app.route('/api/contacto', methods=['POST'])
+def enviar_mensaje_contacto():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON received"}), 400
+
+    mensaje = (data.get('mensaje') or '').strip()
+    if not mensaje:
+        return jsonify({"error": "El mensaje no puede estar vacío"}), 400
+
+    nombre = (data.get('nombre') or '').strip()
+    email = (data.get('email') or '').strip()
+
+    if not nombre or not email:
+        return jsonify({"error": "Faltan datos obligatorios"}), 400
+
+    nuevo_mensaje = MensajeContacto(
+        usuario_id=data.get('usuario_id'),
+        nombre=nombre,
+        email=email,
+        mensaje=mensaje
+    )
+
+    try:
+        db.session.add(nuevo_mensaje)
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Mensaje enviado correctamente"}), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
