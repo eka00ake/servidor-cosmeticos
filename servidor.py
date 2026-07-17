@@ -49,6 +49,7 @@ class ProductoMaestro(db.Model):
     inci = db.Column(db.Text)
     imagen_url = db.Column(db.String(300))
     cantidad = db.Column(db.Integer)
+    pao = db.Column(db.Integer)
 
 class InventarioUsuario(db.Model):
     __tablename__ = 'inventario_usuarios'
@@ -119,11 +120,6 @@ def login():
 # ==========================================
 # RECUPERACIÓN DE CONTRASEÑA
 # ==========================================
-# 🌟 La app no tiene servicio de envío de correos configurado, así que la
-# recuperación se hace verificando en un único paso que el nombre de usuario
-# y el email coinciden con los guardados en el registro; si coinciden, se
-# permite fijar una contraseña nueva directamente. No hay tokens ni enlaces
-# por email: es una verificación de identidad simple pensada para esta app.
 @app.route('/api/auth/recuperar-password', methods=['POST'])
 def recuperar_password():
     data = request.get_json()
@@ -142,8 +138,6 @@ def recuperar_password():
 
     usuario = Usuario.query.filter_by(nombre_usuario=user_key).first()
 
-    # Mismo mensaje tanto si el usuario no existe como si el email no coincide,
-    # para no revelar a un atacante qué nombres de usuario existen.
     if not usuario or (usuario.email or '').lower() != email_key.lower():
         return jsonify({"error": "Los datos no coinciden con ninguna cuenta"}), 404
 
@@ -156,7 +150,7 @@ def recuperar_password():
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# GESTIÓN DE CUENTA (pantalla "Mi Cuenta" de la app)
+# GESTIÓN DE CUENTA
 # ==========================================
 @app.route('/api/usuarios/<int:usuario_id>', methods=['GET'])
 def obtener_usuario(usuario_id):
@@ -251,7 +245,8 @@ def buscar_producto_por_codigo(codigo_barras):
         "nombre_producto": producto.nombre_producto,
         "inci": producto.inci,
         "imagen_url": producto.imagen_url,
-        "cantidad": producto.cantidad
+        "cantidad": producto.cantidad,
+        "pao": producto.pao
     }), 200
 
 # ==========================================
@@ -284,12 +279,14 @@ def guardar_producto():
                 nombre_producto=data.get('nombre_producto'),
                 inci=data.get('inci'),
                 imagen_url=data.get('imagen_url'),
-                cantidad=unidades
+                cantidad=unidades,
+                pao=pao_int
             )
             db.session.add(producto)
             db.session.flush()
         else:
             producto.cantidad = unidades
+            producto.pao = pao_int
 
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
