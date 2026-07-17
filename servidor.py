@@ -236,6 +236,25 @@ def eliminar_usuario(usuario_id):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
+# BUSCAR PRODUCTO POR CÓDIGO DE BARRAS (para autocompletar el formulario)
+# ==========================================
+@app.route('/productos/buscar/<codigo_barras>', methods=['GET'])
+def buscar_producto_por_codigo(codigo_barras):
+    producto = ProductoMaestro.query.filter_by(codigo_barras=codigo_barras).first()
+    if not producto:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    return jsonify({
+        "id": producto.id,
+        "codigo_barras": producto.codigo_barras,
+        "marca": producto.marca,
+        "nombre_producto": producto.nombre_producto,
+        "inci": producto.inci,
+        "imagen_url": producto.imagen_url,
+        "cantidad": producto.cantidad
+    }), 200
+
+# ==========================================
 # GUARDAR PRODUCTO (con buscar-o-crear en productos_maestros)
 # ==========================================
 @app.route('/guardar', methods=['POST'])
