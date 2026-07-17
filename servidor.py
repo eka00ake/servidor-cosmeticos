@@ -46,6 +46,7 @@ class ProductoMaestro(db.Model):
     codigo_barras = db.Column(db.String(100), unique=True)
     marca = db.Column(db.String(100))
     nombre_producto = db.Column(db.String(200))
+    tipo_producto = db.Column(db.String(50), nullable=True)
     inci = db.Column(db.Text)
     imagen_url = db.Column(db.String(300))
     cantidad = db.Column(db.Integer)
