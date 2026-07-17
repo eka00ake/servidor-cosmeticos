@@ -240,7 +240,7 @@ def eliminar_usuario(usuario_id):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# BUSCAR PRODUCTO POR CÓDIGO DE BARRAS (para autocompletar el formulario)
+# BUSCAR PRODUCTO POR CÓDIGO DE BARRAS
 # ==========================================
 @app.route('/productos/buscar/<codigo_barras>', methods=['GET'])
 def buscar_producto_por_codigo(codigo_barras):
@@ -256,11 +256,12 @@ def buscar_producto_por_codigo(codigo_barras):
         "inci": producto.inci,
         "imagen_url": producto.imagen_url,
         "cantidad": producto.cantidad,
-        "pao": producto.pao
+        "pao": producto.pao,
+        "tipo_producto": producto.tipo_producto  # 🌟 MODIFICADO: Ahora devuelve el tipo de producto
     }), 200
 
 # ==========================================
-# GUARDAR PRODUCTO (con buscar-o-crear en productos_maestros)
+# GUARDAR PRODUCTO
 # ==========================================
 @app.route('/guardar', methods=['POST'])
 def guardar_producto():
@@ -283,6 +284,7 @@ def guardar_producto():
     try:
         producto = ProductoMaestro.query.filter_by(codigo_barras=codigo_barras).first()
         if producto is None:
+            # 🌟 MODIFICADO: Guardar tipo_producto al crear el producto maestro nuevo
             producto = ProductoMaestro(
                 codigo_barras=codigo_barras,
                 marca=data.get('marca'),
@@ -290,13 +292,16 @@ def guardar_producto():
                 inci=data.get('inci'),
                 imagen_url=data.get('imagen_url'),
                 cantidad=unidades,
-                pao=pao_int
+                pao=pao_int,
+                tipo_producto=data.get('tipo_producto')
             )
             db.session.add(producto)
             db.session.flush()
         else:
+            # 🌟 MODIFICADO: Actualizar tipo_producto si ya existía el producto maestro
             producto.cantidad = unidades
             producto.pao = pao_int
+            producto.tipo_producto = data.get('tipo_producto', producto.tipo_producto)
 
         fecha_apertura_final = data.get('fecha_apertura') or ""
         fecha_caducidad_pao = data.get('fecha_caducidad_pao') or ""
@@ -322,7 +327,7 @@ def guardar_producto():
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# OBTENER PRODUCTOS DE UN USUARIO (con datos del producto ya unidos)
+# OBTENER PRODUCTOS DE UN USUARIO
 # ==========================================
 @app.route('/productos/<int:usuario_id>', methods=['GET'])
 def obtener_productos(usuario_id):
@@ -354,7 +359,8 @@ def obtener_productos(usuario_id):
                 "numero_unidades": inventario.cantidad_ml,
                 "conclusiones": inventario.conclusiones,
                 "es_acabado": inventario.es_acabado,
-                "fecha_acabado": inventario.fecha_acabado
+                "fecha_acabado": inventario.fecha_acabado,
+                "tipo_producto": producto.tipo_producto # 🌟 OPCIONAL/EXTRA: También lo adjuntamos en el listado
             })
 
         return jsonify(productos), 200
@@ -381,7 +387,7 @@ def marcar_acabado(id_inventario):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# GUARDAR / EDITAR LA FECHA DE APERTURA DE UN PRODUCTO YA EXISTENTE
+# GUARDAR / EDITAR LA FECHA DE APERTURA
 # ==========================================
 @app.route('/productos/<int:id_inventario>/apertura', methods=['PUT'])
 def actualizar_apertura(id_inventario):
@@ -411,7 +417,7 @@ def actualizar_apertura(id_inventario):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# GUARDAR / EDITAR LAS NOTAS (CONCLUSIONES) DE UN PRODUCTO
+# GUARDAR / EDITAR LAS NOTAS (CONCLUSIONES)
 # ==========================================
 @app.route('/productos/<int:id_inventario>/notas', methods=['PUT'])
 def actualizar_notas(id_inventario):
@@ -433,7 +439,7 @@ def actualizar_notas(id_inventario):
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# ELIMINAR UN PRODUCTO DEL INVENTARIO DEL USUARIO
+# ELIMINAR UN PRODUCTO DEL INVENTARIO
 # ==========================================
 @app.route('/productos/<int:id_inventario>', methods=['DELETE'])
 def eliminar_producto(id_inventario):
