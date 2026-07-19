@@ -83,6 +83,15 @@ class MensajeContacto(db.Model):
     email = db.Column(db.String(150))
     mensaje = db.Column(db.Text, nullable=False)
     fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
+    
+class Opinion(db.Model):
+    __tablename__ = 'opiniones'
+    id = db.Column(db.Integer, primary_key=True)
+    producto_id = db.Column(db.Integer, db.ForeignKey('productos_maestros.id'), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    valoracion = db.Column(db.Integer, nullable=False)
+    comentario = db.Column(db.Text)
+    fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
 
 # ==========================================
 # AUTENTICACIÓN
@@ -268,6 +277,87 @@ def buscar_producto_por_codigo(codigo_barras):
         "pao": producto.pao,
         "tipo_producto": producto.tipo_producto  # 🌟 MODIFICADO: Ahora devuelve el tipo de producto
     }), 200
+
+# ==========================================
+# OPINIONES PÚBLICAS SOBRE UN PRODUCTO
+# ==========================================
+@app.route('/productos/<codigo_barras>/opiniones', methods=['GET'])
+def obtener_opiniones(codigo_barras):
+    producto = ProductoMaestro.query.filter_by(codigo_barras=codigo_barras).first()
+    if not producto:
+        # Todavía nadie ha dado de alta este producto en el catálogo maestro,
+        # así que por definición no puede tener opiniones.
+        return jsonify([]), 200
+
+    resultados = (
+        db.session.query(Opinion, Usuario)
+        .join(Usuario, Opinion.usuario_id == Usuario.id)
+        .filter(Opinion.producto_id == producto.id)
+        .order_by(Opinion.fecha_envio.desc())
+        .all()
+    )
+
+    opiniones = [
+        {
+            "id": opinion.id,
+            "codigo_barras": codigo_barras,
+            "usuario_id": opinion.usuario_id,
+            "nombre_usuario": usuario.nombre_usuario,
+            "valoracion": opinion.valoracion,
+            "comentario": opinion.comentario,
+            "fecha": opinion.fecha_envio.strftime("%d/%m/%Y") if opinion.fecha_envio else ""
+        }
+        for opinion, usuario in resultados
+    ]
+    return jsonify(opiniones), 200
+
+
+@app.route('/productos/<codigo_barras>/opiniones', methods=['POST'])
+def enviar_opinion(codigo_barras):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON received"}), 400
+
+    usuario_id = data.get('usuario_id')
+    valoracion = data.get('valoracion')
+    comentario = (data.get('comentario') or '').strip()
+
+    if not usuario_id:
+        return jsonify({"error": "Falta el usuario_id"}), 400
+    if not isinstance(valoracion, int) or not (1 <= valoracion <= 5):
+        return jsonify({"error": "La valoración debe ser un número entre 1 y 5"}), 400
+
+    producto = ProductoMaestro.query.filter_by(codigo_barras=codigo_barras).first()
+    if not producto:
+        return jsonify({"error": "Producto no encontrado"}), 404
+
+    if not Usuario.query.get(usuario_id):
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    try:
+        # Si esta persona ya había opinado sobre este producto, actualizamos
+        # su opinión existente en vez de crear una duplicada.
+        opinion = Opinion.query.filter_by(producto_id=producto.id, usuario_id=usuario_id).first()
+        if opinion:
+            opinion.valoracion = valoracion
+            opinion.comentario = comentario
+            opinion.fecha_envio = datetime.utcnow()
+            codigo_estado = 200
+        else:
+            opinion = Opinion(
+                producto_id=producto.id,
+                usuario_id=usuario_id,
+                valoracion=valoracion,
+                comentario=comentario
+            )
+            db.session.add(opinion)
+            codigo_estado = 201
+
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Opinión guardada"}), codigo_estado
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 # ==========================================
 # GUARDAR PRODUCTO
