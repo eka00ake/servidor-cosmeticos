@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_, func
 from werkzeug.security import generate_password_hash, check_password_hash
 import cloudinary
 import cloudinary.uploader
@@ -83,7 +84,7 @@ class MensajeContacto(db.Model):
     email = db.Column(db.String(150))
     mensaje = db.Column(db.Text, nullable=False)
     fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
 class Opinion(db.Model):
     __tablename__ = 'opiniones'
     id = db.Column(db.Integer, primary_key=True)
@@ -91,6 +92,14 @@ class Opinion(db.Model):
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
     valoracion = db.Column(db.Integer, nullable=False)
     comentario = db.Column(db.Text)
+    fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
+
+class RespuestaOpinion(db.Model):
+    __tablename__ = 'respuestas_opiniones'
+    id = db.Column(db.Integer, primary_key=True)
+    opinion_id = db.Column(db.Integer, db.ForeignKey('opiniones.id'), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
     fecha_envio = db.Column(db.DateTime, default=datetime.utcnow)
 
 # ==========================================
@@ -355,6 +364,117 @@ def enviar_opinion(codigo_barras):
 
         db.session.commit()
         return jsonify({"status": "ok", "message": "Opinión guardada"}), codigo_estado
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# COMUNIDAD GLOWCHECK: FEED Y BÚSQUEDA DE OPINIONES
+# ==========================================
+@app.route('/comunidad/opiniones', methods=['GET'])
+def buscar_opiniones_comunidad():
+    texto_busqueda = (request.args.get('buscar') or '').strip()
+
+    consulta = (
+        db.session.query(Opinion, Usuario, ProductoMaestro)
+        .join(Usuario, Opinion.usuario_id == Usuario.id)
+        .join(ProductoMaestro, Opinion.producto_id == ProductoMaestro.id)
+    )
+
+    if texto_busqueda:
+        patron = f"%{texto_busqueda}%"
+        consulta = consulta.filter(
+            or_(
+                ProductoMaestro.codigo_barras.ilike(patron),
+                ProductoMaestro.nombre_producto.ilike(patron)
+            )
+        )
+
+    resultados = consulta.order_by(Opinion.fecha_envio.desc()).limit(100).all()
+
+    # Contar respuestas por opinión de una sola vez (evita N+1 queries)
+    ids_opiniones = [opinion.id for opinion, _, _ in resultados]
+    conteos = dict(
+        db.session.query(RespuestaOpinion.opinion_id, func.count(RespuestaOpinion.id))
+        .filter(RespuestaOpinion.opinion_id.in_(ids_opiniones))
+        .group_by(RespuestaOpinion.opinion_id)
+        .all()
+    ) if ids_opiniones else {}
+
+    respuesta = [
+        {
+            "id": opinion.id,
+            "codigo_barras": producto.codigo_barras,
+            "marca": producto.marca,
+            "nombre_producto": producto.nombre_producto,
+            "imagen_url": producto.imagen_url,
+            "usuario_id": opinion.usuario_id,
+            "nombre_usuario": usuario.nombre_usuario,
+            "valoracion": opinion.valoracion,
+            "comentario": opinion.comentario,
+            "fecha": opinion.fecha_envio.strftime("%d/%m/%Y") if opinion.fecha_envio else "",
+            "numero_respuestas": conteos.get(opinion.id, 0)
+        }
+        for opinion, usuario, producto in resultados
+    ]
+    return jsonify(respuesta), 200
+
+
+# ==========================================
+# RESPUESTAS A UNA OPINIÓN
+# ==========================================
+@app.route('/opiniones/<int:opinion_id>/respuestas', methods=['GET'])
+def obtener_respuestas(opinion_id):
+    resultados = (
+        db.session.query(RespuestaOpinion, Usuario)
+        .join(Usuario, RespuestaOpinion.usuario_id == Usuario.id)
+        .filter(RespuestaOpinion.opinion_id == opinion_id)
+        .order_by(RespuestaOpinion.fecha_envio.asc())
+        .all()
+    )
+
+    respuesta = [
+        {
+            "id": r.id,
+            "opinion_id": r.opinion_id,
+            "usuario_id": r.usuario_id,
+            "nombre_usuario": usuario.nombre_usuario,
+            "texto": r.texto,
+            "fecha": r.fecha_envio.strftime("%d/%m/%Y") if r.fecha_envio else "",
+        }
+        for r, usuario in resultados
+    ]
+    return jsonify(respuesta), 200
+
+
+@app.route('/opiniones/<int:opinion_id>/respuestas', methods=['POST'])
+def enviar_respuesta(opinion_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON received"}), 400
+
+    usuario_id = data.get('usuario_id')
+    texto = (data.get('texto') or '').strip()
+
+    if not usuario_id:
+        return jsonify({"error": "Falta el usuario_id"}), 400
+    if not texto:
+        return jsonify({"error": "El texto de la respuesta no puede estar vacío"}), 400
+
+    if not Opinion.query.get(opinion_id):
+        return jsonify({"error": "Opinión no encontrada"}), 404
+    if not Usuario.query.get(usuario_id):
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    try:
+        nueva_respuesta = RespuestaOpinion(
+            opinion_id=opinion_id,
+            usuario_id=usuario_id,
+            texto=texto
+        )
+        db.session.add(nueva_respuesta)
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "Respuesta guardada"}), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
